@@ -24,3 +24,16 @@ check "flag_global_administrator_activation" {
     error_message = "An activated_directory_roles entry activates Global Administrator. Confirm this is intended before assigning it to any principal."
   }
 }
+
+# Azure forbids a principal from removing its own built-in directory role assignment, so a built-in
+# role assigned to the identity running Terraform (self) cannot be destroyed and will strand the
+# stack. Assign built-in roles to a group or another principal instead.
+check "no_self_builtin_role_assignment" {
+  assert {
+    condition = alltrue([
+      for k, v in var.role_assignments :
+      !(v.directory_role_key != null && v.principal_object_id == data.azuread_client_config.current.object_id)
+    ])
+    error_message = "A role assignment grants a built-in directory role to the principal running Terraform (self). Azure will not allow removing self from a built-in role, so destroy will fail. Assign built-in roles to a group or another principal."
+  }
+}

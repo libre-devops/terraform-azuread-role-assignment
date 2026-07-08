@@ -1,9 +1,18 @@
-# Complete call: activate a built-in role, create a custom role, and assign both to a principal.
-# The principal here is the identity running Terraform (self), which keeps the example free of any
-# other object to create. Directory Readers is read only, so the self assignment is benign and is
-# removed on destroy. Every operation here needs RoleManagement.ReadWrite.Directory (the Privileged
-# Role Administrator directory role) on the running principal.
+# Complete call: activate a built-in role, create a custom role, and assign both to a role-assignable
+# security group. The role target is a group (not the identity running Terraform) on purpose: Azure
+# forbids a principal from removing its OWN built-in directory role assignment, which would strand
+# the stack on destroy. A group is a clean, reversible target. Every operation here needs
+# RoleManagement.ReadWrite.Directory (the Privileged Role Administrator directory role), and the
+# assignable group also needs it.
 data "azuread_client_config" "current" {}
+
+# The assignment target. Directory roles can only be assigned to a role-assignable security group.
+resource "azuread_group" "target" {
+  display_name       = "${var.short}-${terraform.workspace}-role-target"
+  security_enabled   = true
+  assignable_to_role = true
+  owners             = [data.azuread_client_config.current.object_id]
+}
 
 module "role_assignment" {
   source = "../../"
@@ -38,16 +47,16 @@ module "role_assignment" {
     }
   }
 
-  # Assign both roles to the running principal: the built-in by directory_role_key, the custom by
+  # Assign both roles to the target group: the built-in by directory_role_key, the custom by
   # custom_role_key.
   role_assignments = {
-    self-directory-reader = {
+    group-directory-reader = {
       directory_role_key  = "dir-readers"
-      principal_object_id = data.azuread_client_config.current.object_id
+      principal_object_id = azuread_group.target.object_id
     }
-    self-application-manager = {
+    group-application-manager = {
       custom_role_key     = "app-manager"
-      principal_object_id = data.azuread_client_config.current.object_id
+      principal_object_id = azuread_group.target.object_id
     }
   }
 }
