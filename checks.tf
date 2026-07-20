@@ -14,12 +14,15 @@ check "flag_global_administrator_assignment" {
   }
 }
 
-# The same, for a built-in role activated by display name.
+# The same, for a built-in role activated by display name or template id. Each side is guarded
+# with its own conditional because exactly one of the two is set (coalesce cannot express this:
+# it rejects a null-and-empty-string argument list outright).
 check "flag_global_administrator_activation" {
   assert {
     condition = alltrue([
       for k, v in var.activated_directory_roles :
-      lower(coalesce(v.display_name, "")) != "global administrator"
+      (v.display_name == null ? true : lower(v.display_name) != "global administrator") &&
+      (v.template_id == null ? true : v.template_id != "62e90394-69f5-4237-9190-012177145e10")
     ])
     error_message = "An activated_directory_roles entry activates Global Administrator. Confirm this is intended before assigning it to any principal."
   }

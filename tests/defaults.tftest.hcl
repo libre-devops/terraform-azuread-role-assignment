@@ -7,6 +7,9 @@ mock_provider "azuread" {}
 variables {
   activated_directory_roles = {
     dir-readers = { display_name = "Directory Readers" }
+    # By template id (User Administrator): display_name stays null, which the Global Administrator
+    # activation check must tolerate (caught live by the group module's complete example).
+    user-admin = { template_id = "fe930be7-5e62-47db-91af-98c3a49a38b1" }
   }
 
   custom_directory_roles = {
@@ -43,8 +46,8 @@ run "roles_are_created" {
   }
 
   assert {
-    condition     = length(azuread_directory_role.this) == 1
-    error_message = "One built-in directory role should be activated."
+    condition     = length(azuread_directory_role.this) == 2
+    error_message = "A built-in directory role should be activated per entry, whether referenced by display name or template id."
   }
 }
 
