@@ -25,6 +25,11 @@ output "custom_directory_roles" {
   }
 }
 
+output "graph_app_role_grant_ids" {
+  description = "Map of grant instance key (label|permission) to the app role assignment id."
+  value       = { for k, v in azuread_app_role_assignment.graph : k => v.id }
+}
+
 output "role_assignment_ids" {
   description = "Map of role assignment key to the directory role assignment id."
   value       = { for k, v in azuread_directory_role_assignment.this : k => v.id }

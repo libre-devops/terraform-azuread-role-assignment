@@ -67,6 +67,63 @@ variable "custom_directory_roles" {
   }
 }
 
+variable "graph_app_role_grants" {
+  description = <<DESC
+Microsoft Graph APPLICATION permission grants (admin consent) to EXISTING principals, keyed by a
+logical label you choose. This is the managed-identity shape the rest of the family cannot reach: a
+Logic App, Function App, automation, or VM identity that needs app-only Graph has no app
+registration of its own, so the service-principal module's in-call grants cannot target it, and
+directory roles are the wrong tool. `role_names` take Graph permission names
+(ServiceMessage.Read.All) and resolve against the tenant's Microsoft Graph service principal, so
+configuration reads like the permission reference rather than GUID soup; `role_ids` take explicit
+app role GUIDs for anything unusual. Each grant IS tenant-wide admin consent, and creating one needs
+`AppRoleAssignment.ReadWrite.All` (or Global Administrator) on the applier.
+DESC
+
+  type = map(object({
+    principal_object_id = string
+    role_names          = optional(list(string), [])
+    role_ids            = optional(list(string), [])
+  }))
+  default = {}
+
+  validation {
+    condition     = alltrue([for g in values(var.graph_app_role_grants) : length(g.role_names) + length(g.role_ids) > 0])
+    error_message = "Every graph_app_role_grants entry must set at least one of role_names or role_ids."
+  }
+
+  validation {
+    condition     = alltrue([for g in values(var.graph_app_role_grants) : can(regex("^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$", g.principal_object_id))])
+    error_message = "Each principal_object_id must be an object id GUID: the service principal or managed identity OBJECT id, not an appId."
+  }
+
+  validation {
+    condition     = alltrue([for g in values(var.graph_app_role_grants) : alltrue([for i in g.role_ids : can(regex("^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$", i))])])
+    error_message = "Each role_ids entry must be an app role GUID."
+  }
+}
+
+variable "privileged_graph_app_role_ids" {
+  description = <<DESC
+Graph application permissions treated as privileged by the warning check (name => app role GUID on
+the Microsoft Graph service principal): each one is escalation-capable, able to grant or rewrite its
+way to broader tenant control. Extend this to treat more permissions as privileged.
+DESC
+
+  type = map(string)
+  default = {
+    "Application.ReadWrite.All"          = "1bfefb4e-e0b5-418b-a88f-73c46d2cc8e9"
+    "AppRoleAssignment.ReadWrite.All"    = "06b708a9-e830-4db3-a914-8e69da51d44f"
+    "Directory.ReadWrite.All"            = "19dbc75e-c2e2-444c-a770-ec69d8559fc7"
+    "RoleManagement.ReadWrite.Directory" = "9e3f62cf-ca93-4989-b6ce-bf83c28f9fe8"
+  }
+
+  validation {
+    condition     = alltrue([for g in values(var.privileged_graph_app_role_ids) : can(regex("^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$", g))])
+    error_message = "Each privileged_graph_app_role_ids value must be an app role GUID."
+  }
+}
+
 variable "role_assignments" {
   description = <<-DESC
     Directory role assignments to create, keyed by a stable logical name. Each assigns one role to

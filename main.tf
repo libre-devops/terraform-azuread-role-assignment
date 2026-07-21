@@ -42,3 +42,56 @@ resource "azuread_directory_role_assignment" "this" {
   app_scope_id        = each.value.app_scope_id
   directory_scope_id  = each.value.directory_scope_id
 }
+
+# ---------------------------------------------------------------------------------------------------
+# Microsoft Graph application permission grants to existing principals (the managed-identity shape)
+# ---------------------------------------------------------------------------------------------------
+
+# Both data sources exist only when grants are requested, so grant-free calls make no Graph reads.
+data "azuread_application_published_app_ids" "well_known" {
+  count = length(var.graph_app_role_grants) > 0 ? 1 : 0
+}
+
+data "azuread_service_principal" "msgraph" {
+  count     = length(var.graph_app_role_grants) > 0 ? 1 : 0
+  client_id = data.azuread_application_published_app_ids.well_known[0].result["MicrosoftGraph"]
+}
+
+locals {
+  # try() because Terraform evaluates both branches of a conditional, so a bare index would error
+  # on grant-free calls where the data source has count 0.
+  graph_app_role_ids = try(data.azuread_service_principal.msgraph[0].app_role_ids, {})
+  graph_sp_object_id = try(data.azuread_service_principal.msgraph[0].object_id, null)
+
+  # One instance per (grant, permission), keyed "<label>|<name-or-guid>". Keys are built purely
+  # from configuration, so they stay plan-known; only the resolved role id is data-driven.
+  graph_grant_instances = merge([
+    for label, g in var.graph_app_role_grants : merge(
+      { for n in g.role_names : "${label}|${n}" => {
+        principal = g.principal_object_id
+        role_id   = lookup(local.graph_app_role_ids, n, null)
+        role_name = n
+      } },
+      { for i in g.role_ids : "${label}|${i}" => {
+        principal = g.principal_object_id
+        role_id   = i
+        role_name = null
+      } },
+    )
+  ]...)
+}
+
+resource "azuread_app_role_assignment" "graph" {
+  for_each = local.graph_grant_instances
+
+  app_role_id         = each.value.role_id
+  principal_object_id = each.value.principal
+  resource_object_id  = local.graph_sp_object_id
+
+  lifecycle {
+    precondition {
+      condition     = each.value.role_id != null
+      error_message = "Grant '${each.key}' names a permission that is not a Microsoft Graph APPLICATION permission (check the spelling against the Graph permissions reference; delegated scopes do not resolve here)."
+    }
+  }
+}

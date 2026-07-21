@@ -40,3 +40,15 @@ check "no_self_builtin_role_assignment" {
     error_message = "A role assignment grants a built-in directory role to the principal running Terraform (self). Azure will not allow removing self from a built-in role, so destroy will fail. Assign built-in roles to a group or another principal."
   }
 }
+
+# Granting an escalation-capable Graph application permission (each of these can grant or rewrite
+# its way to tenant control) is sometimes exactly the job, but should never happen invisibly.
+check "flag_privileged_graph_app_role_grants" {
+  assert {
+    condition = alltrue([
+      for k, inst in local.graph_grant_instances :
+      !(contains(keys(var.privileged_graph_app_role_ids), coalesce(inst.role_name, "-")) || contains(values(var.privileged_graph_app_role_ids), coalesce(inst.role_id, "-")))
+    ])
+    error_message = "These grants carry privileged (escalation-capable) Graph application permissions: ${join(", ", [for k, inst in local.graph_grant_instances : k if contains(keys(var.privileged_graph_app_role_ids), coalesce(inst.role_name, "-")) || contains(values(var.privileged_graph_app_role_ids), coalesce(inst.role_id, "-"))])}. Deliberate grants are fine; this check exists so they are always visible."
+  }
+}

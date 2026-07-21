@@ -55,14 +55,41 @@ A role assignment points at its role in exactly one of three ways:
 - `custom_role_key` - a key from `custom_directory_roles` (assigns a custom role by its object id)
 - `role_id` - a raw template id (built-in) or object id (custom), for roles managed elsewhere
 
+## Graph application permission grants (the managed-identity shape)
+
+`graph_app_role_grants` grants Microsoft Graph **application** permissions (admin consent) to
+EXISTING principals, which is the shape managed identities need: a Logic App, Function App,
+automation, or VM identity doing app-only Graph has no app registration of its own, so the
+`service-principal` module's in-call grants cannot reach it and directory roles are the wrong tool.
+Permissions are written as names and resolved against the tenant's Graph service principal:
+
+```hcl
+module "graph_grants" {
+  source  = "libre-devops/role-assignment/azuread"
+  version = "~> 4.2"
+
+  graph_app_role_grants = {
+    "logic-app-mi" = {
+      principal_object_id = module.logic_app_workflow.identities["logic-ldo-uks-prd-001"].principal_id
+      role_names          = ["ServiceMessage.Read.All", "Tasks.ReadWrite.All"]
+    }
+  }
+}
+```
+
+A check block flags escalation-capable permissions (`Directory.ReadWrite.All`,
+`RoleManagement.ReadWrite.Directory`, `Application.ReadWrite.All`, `AppRoleAssignment.ReadWrite.All`;
+the set is caller-extendable) so a privileged grant is always a visible decision, never a quiet one.
+
 ## Required permissions
 
 Managing directory roles (activation, custom roles and assignments) needs the running principal to
 hold Microsoft Graph `RoleManagement.ReadWrite.Directory`, that is the **Privileged Role
-Administrator** directory role. A check block flags any attempt to touch Global Administrator so it
-is never assigned by accident.
+Administrator** directory role. `graph_app_role_grants` additionally needs
+`AppRoleAssignment.ReadWrite.All` (each grant IS tenant-wide admin consent). A check block flags any
+attempt to touch Global Administrator so it is never assigned by accident.
 
 ## Examples
 
 - [`examples/minimal`](./examples/minimal) - the smallest valid call: one custom directory role.
-- [`examples/complete`](./examples/complete) - activate a built-in role, create a custom role, and assign both to a principal.
+- [`examples/complete`](./examples/complete) - activate a built-in role, create a custom role, and assign both to a principal; plus a user-assigned managed identity granted a benign Graph application permission by name through `graph_app_role_grants`.

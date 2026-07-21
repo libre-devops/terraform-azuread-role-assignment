@@ -60,3 +60,59 @@ module "role_assignment" {
     }
   }
 }
+
+# ------------------------------------------------------------------------------------------------
+# The managed-identity shape: a user-assigned identity granted a Graph APPLICATION permission by
+# name through graph_app_role_grants. This is the gap the rest of the family cannot reach (the
+# identity has no app registration), and the exact pattern a Logic App or Function App identity
+# needs. ServiceHealth.Read.All is deliberately benign. The azurerm resources below exist only to
+# mint a real managed identity to grant to.
+# ------------------------------------------------------------------------------------------------
+
+locals {
+  location  = lookup(var.regions, var.loc, "uksouth")
+  rg_name   = "rg-${var.short}-${var.loc}-${terraform.workspace}-adra-cmp"
+  uami_name = "id-${var.short}-${var.loc}-${terraform.workspace}-adra-cmp"
+}
+
+module "tags" {
+  source  = "libre-devops/tags/azurerm"
+  version = "~> 4.0"
+
+  cost_centre     = "1888/67"
+  owner           = "platform@example.com"
+  deployed_branch = var.deployed_branch
+  deployed_repo   = var.deployed_repo
+  additional_tags = { Application = "terraform-azuread-role-assignment" }
+}
+
+module "rg" {
+  source  = "libre-devops/rg/azurerm"
+  version = "~> 4.0"
+
+  resource_groups = [{ name = local.rg_name, location = local.location, tags = module.tags.tags }]
+}
+
+module "uami" {
+  source  = "libre-devops/user-assigned-managed-identity/azurerm"
+  version = "~> 4.0"
+
+  resource_group_id = module.rg.ids[local.rg_name]
+  location          = local.location
+  tags              = module.tags.tags
+
+  user_assigned_identities = {
+    (local.uami_name) = {}
+  }
+}
+
+module "graph_grants" {
+  source = "../../"
+
+  graph_app_role_grants = {
+    "uami-service-health" = {
+      principal_object_id = module.uami.principal_ids[local.uami_name]
+      role_names          = ["ServiceHealth.Read.All"]
+    }
+  }
+}
